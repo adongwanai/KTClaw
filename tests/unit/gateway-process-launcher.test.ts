@@ -1,19 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { forkMock, writeFileSyncMock, existsSyncMock } = vi.hoisted(() => ({
+const { appMock, forkMock, spawnMock, writeFileSyncMock, existsSyncMock } = vi.hoisted(() => ({
+  appMock: {
+    isPackaged: false,
+    getPath: vi.fn(() => 'C:/Users/test/AppData/Roaming/KTClaw'),
+  },
   forkMock: vi.fn(),
+  spawnMock: vi.fn(),
   writeFileSyncMock: vi.fn(),
   existsSyncMock: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
-  app: {
-    isPackaged: false,
-    getPath: vi.fn(() => 'C:/Users/test/AppData/Roaming/KTClaw'),
-  },
+  app: appMock,
   utilityProcess: {
     fork: (...args: unknown[]) => forkMock(...args),
   },
+}));
+
+vi.mock('node:child_process', () => ({
+  spawn: (...args: unknown[]) => spawnMock(...args),
 }));
 
 vi.mock('fs', async () => {
@@ -26,29 +32,39 @@ vi.mock('fs', async () => {
 });
 
 describe('launchGatewayProcess', () => {
+  const originalExecPath = process.execPath;
+
+  function createMockChild(pid = 12345) {
+    const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+    const on = (event: string, handler: (...args: unknown[]) => void) => {
+      const current = listeners.get(event) ?? [];
+      current.push(handler);
+      listeners.set(event, current);
+    };
+    const emit = (event: string, ...args: unknown[]) => {
+      for (const handler of listeners.get(event) ?? []) {
+        handler(...args);
+      }
+    };
+    const child = {
+      pid,
+      stderr: { on },
+      stdout: { on },
+      on,
+    };
+    setImmediate(() => emit('spawn'));
+    return child;
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
+    appMock.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
-    forkMock.mockImplementation((_entry: string, _args: string[], _options: Record<string, unknown>) => {
-      const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-      const on = (event: string, handler: (...args: unknown[]) => void) => {
-        const current = listeners.get(event) ?? [];
-        current.push(handler);
-        listeners.set(event, current);
-      };
-      const emit = (event: string, ...args: unknown[]) => {
-        for (const handler of listeners.get(event) ?? []) {
-          handler(...args);
-        }
-      };
-      const child = {
-        pid: 12345,
-        stderr: { on },
-        stdout: { on },
-        on,
-      };
-      setImmediate(() => emit('spawn'));
-      return child;
+    forkMock.mockImplementation(() => createMockChild());
+    spawnMock.mockImplementation(() => createMockChild(23456));
+    Object.defineProperty(process, 'execPath', {
+      value: originalExecPath,
+      configurable: true,
     });
   });
 
@@ -119,5 +135,59 @@ describe('launchGatewayProcess', () => {
     expect(options?.env?.OPENCLAW_WINDOWS_TASK_NAME).toBeUndefined();
     expect(options?.env?.OPENCLAW_SERVICE_MARKER).toBeUndefined();
     expect(options?.env?.OPENCLAW_SERVICE_KIND).toBeUndefined();
+  });
+
+  it('uses Electron run-as-node launcher in packaged builds', async () => {
+    appMock.isPackaged = true;
+    Object.defineProperty(process, 'execPath', {
+      value: '/opt/KTClaw/ktclaw',
+      configurable: true,
+    });
+    const { launchGatewayProcess } = await import('@electron/gateway/process-launcher');
+
+    await launchGatewayProcess({
+      port: 18790,
+      launchContext: {
+        openclawDir: '/opt/KTClaw/resources/openclaw',
+        entryScript: '/opt/KTClaw/resources/openclaw/openclaw.mjs',
+        gatewayArgs: ['gateway', '--port', '18790', '--token', 'token', '--allow-unconfigured'],
+        forkEnv: {},
+        mode: 'packaged',
+        binPathExists: true,
+        loadedProviderKeyCount: 0,
+        proxySummary: 'disabled',
+        channelStartupSummary: 'skipped(no configured channels)',
+        appSettings: {} as never,
+      },
+      sanitizeSpawnArgs: (args) => args,
+      getCurrentState: () => 'starting',
+      getShouldReconnect: () => true,
+      onStderrLine: () => {},
+      onSpawn: () => {},
+      onExit: () => {},
+      onError: () => {},
+    });
+
+    expect(forkMock).not.toHaveBeenCalled();
+    expect(spawnMock).toHaveBeenCalledWith(
+      '/opt/KTClaw/ktclaw',
+      [
+        '/opt/KTClaw/resources/openclaw/openclaw.mjs',
+        'gateway',
+        '--port',
+        '18790',
+        '--token',
+        'token',
+        '--allow-unconfigured',
+      ],
+      expect.objectContaining({
+        cwd: '/opt/KTClaw',
+        windowsHide: true,
+        env: expect.objectContaining({
+          ELECTRON_RUN_AS_NODE: '1',
+          OPENCLAW_GATEWAY_PORT: '18790',
+        }),
+      }),
+    );
   });
 });

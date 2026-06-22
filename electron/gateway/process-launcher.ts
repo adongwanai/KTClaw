@@ -1,4 +1,5 @@
 import { app, utilityProcess } from 'electron';
+import { spawn } from 'node:child_process';
 import { existsSync, writeFileSync } from 'fs';
 import path from 'path';
 import type { GatewayLaunchContext } from './config-sync';
@@ -123,12 +124,12 @@ export async function launchGatewayProcess(options: {
     channelStartupSummary,
   } = options.launchContext;
 
-  logger.info(
-    `Starting Gateway process (mode=${mode}, port=${options.port}, entry="${entryScript}", args="${options.sanitizeSpawnArgs(gatewayArgs).join(' ')}", cwd="${openclawDir}", bundledBin=${binPathExists ? 'yes' : 'no'}, providerKeys=${loadedProviderKeyCount}, channels=${channelStartupSummary}, proxy=${proxySummary})`,
-  );
-  const lastSpawnSummary = `mode=${mode}, entry="${entryScript}", args="${options.sanitizeSpawnArgs(gatewayArgs).join(' ')}", cwd="${openclawDir}"`;
-
   const runtimeEnv = stripOpenClawSupervisorEnv({ ...forkEnv });
+  const useRunAsNodeLauncher = app.isPackaged;
+  if (useRunAsNodeLauncher) {
+    runtimeEnv.ELECTRON_RUN_AS_NODE = '1';
+  }
+  runtimeEnv.OPENCLAW_GATEWAY_PORT = String(options.port);
   runtimeEnv.OPENCLAW_NODE_OPTIONS_READY = runtimeEnv.OPENCLAW_NODE_OPTIONS_READY || '1';
   runtimeEnv.NODE_OPTIONS = appendNodeOptionFlag(
     runtimeEnv.NODE_OPTIONS,
@@ -158,13 +159,28 @@ export async function launchGatewayProcess(options: {
     }
   }
 
+  const launcher = useRunAsNodeLauncher ? process.execPath : 'utilityProcess.fork';
+  const launcherArgs = useRunAsNodeLauncher ? [entryScript, ...gatewayArgs] : gatewayArgs;
+  const launchCwd = useRunAsNodeLauncher ? path.dirname(process.execPath) : openclawDir;
+  logger.info(
+    `Starting Gateway process (mode=${mode}, launcher=${launcher}, port=${options.port}, entry="${entryScript}", args="${options.sanitizeSpawnArgs(gatewayArgs).join(' ')}", cwd="${launchCwd}", bundledBin=${binPathExists ? 'yes' : 'no'}, providerKeys=${loadedProviderKeyCount}, channels=${channelStartupSummary}, proxy=${proxySummary})`,
+  );
+  const lastSpawnSummary = `mode=${mode}, launcher="${launcher}", entry="${entryScript}", args="${options.sanitizeSpawnArgs(gatewayArgs).join(' ')}", cwd="${launchCwd}"`;
+
   return await new Promise<{ child: Electron.UtilityProcess; lastSpawnSummary: string }>((resolve, reject) => {
-    const child = utilityProcess.fork(entryScript, gatewayArgs, {
-      cwd: openclawDir,
-      stdio: 'pipe',
-      env: runtimeEnv as NodeJS.ProcessEnv,
-      serviceName: 'OpenClaw Gateway',
-    });
+    const child = useRunAsNodeLauncher
+      ? spawn(process.execPath, launcherArgs, {
+        cwd: launchCwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: runtimeEnv as NodeJS.ProcessEnv,
+        windowsHide: true,
+      }) as unknown as Electron.UtilityProcess
+      : utilityProcess.fork(entryScript, gatewayArgs, {
+        cwd: launchCwd,
+        stdio: 'pipe',
+        env: runtimeEnv as NodeJS.ProcessEnv,
+        serviceName: 'OpenClaw Gateway',
+      });
 
     let settled = false;
     const resolveOnce = () => {

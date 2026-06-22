@@ -34,9 +34,7 @@ import { connectGatewaySocket, waitForGatewayReady } from './ws-client';
 import {
   findExistingGatewayProcess,
   runOpenClawDoctorRepair,
-  stopSystemdGatewayService,
   terminateOwnedGatewayProcess,
-  unloadLaunchctlGatewayService,
   waitForPortFree,
   warmupManagedPythonReadiness,
 } from './supervisor';
@@ -192,6 +190,18 @@ export class GatewayManager extends EventEmitter {
     const message = error instanceof Error ? error.message : String(error);
     return /unknown method:\s*shutdown/i.test(message);
   }
+
+  private async refreshConfiguredPortFromStore(): Promise<void> {
+    try {
+      const configuredPort = await import('../utils/store').then(({ getSetting }) => getSetting('gatewayPort'));
+      if (typeof configuredPort === 'number') {
+        this.setConfiguredPort(configuredPort);
+      }
+    } catch (error) {
+      logger.warn('Failed to refresh configured Gateway port before start:', error);
+    }
+  }
+
   /**
    * Get current Gateway status
    */
@@ -208,6 +218,16 @@ export class GatewayManager extends EventEmitter {
 
   setConfiguredPort(port: number): void {
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      return;
+    }
+    if (
+      this.status.state === 'running'
+      || this.status.state === 'starting'
+      || this.status.state === 'reconnecting'
+    ) {
+      logger.debug(
+        `Gateway port update to ${port} deferred until the gateway is stopped (current state=${this.status.state})`,
+      );
       return;
     }
     if (this.status.port === port) {
@@ -229,6 +249,8 @@ export class GatewayManager extends EventEmitter {
       logger.debug('Gateway already running, skipping start');
       return;
     }
+
+    await this.refreshConfiguredPortFromStore();
 
     this.startLock = true;
     const startEpoch = this.lifecycleController.bump('start');
@@ -283,12 +305,6 @@ export class GatewayManager extends EventEmitter {
         getStartupStderrLines: () => this.recentStartupStderrLines,
         assertLifecycle: (phase) => {
           this.lifecycleController.assert(startEpoch, phase);
-        },
-        stopSystemService: async () => {
-          await tracePhase('stop-system-service', async () => {
-            await unloadLaunchctlGatewayService();
-            await stopSystemdGatewayService();
-          });
         },
         findExistingGateway: async (port, ownedPid) => {
           return await tracePhase('find-existing', async () => {

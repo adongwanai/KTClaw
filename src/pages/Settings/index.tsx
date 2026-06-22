@@ -1245,8 +1245,15 @@ export function ModelProviderSection({
                   const p = parseInt(portDraft, 10);
                   if (!p || p < 1024 || p > 65535) return;
                   setSavingPort(true);
-                  setGatewayPort(p);
-                  setSavingPort(false);
+                  try {
+                    await setGatewayPort(p);
+                    toast.success(`Gateway 端口已更新为 ${p}`);
+                  } catch (error) {
+                    setPortDraft(String(gatewayPort));
+                    toast.error(`Gateway 端口保存失败: ${toUserMessage(error)}`);
+                  } finally {
+                    setSavingPort(false);
+                  }
                 }}
                 className="rounded-lg border border-black/10 px-2.5 py-1.5 text-[12px] text-[#3c3c43] transition-colors hover:bg-[#f2f2f7] disabled:opacity-40"
               >

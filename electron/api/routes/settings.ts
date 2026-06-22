@@ -8,23 +8,19 @@ import type { HostApiContext } from '../context';
 import { parseJsonBody, sendJson } from '../route-utils';
 import { syncWatchedDirs } from './memory-watcher';
 
-async function handleProxySettingsChange(ctx: HostApiContext): Promise<void> {
-  const settings = await getAllSettings();
-  await applyProxySettings(settings);
-  if (ctx.gatewayManager.getStatus().state === 'running') {
-    await ctx.gatewayManager.restart();
-  }
-}
-
-function patchTouchesProxy(patch: Partial<AppSettings>): boolean {
-  return Object.keys(patch).some((key) => (
+function isProxyKey(key: keyof AppSettings): boolean {
+  return (
     key === 'proxyEnabled' ||
     key === 'proxyServer' ||
     key === 'proxyHttpServer' ||
     key === 'proxyHttpsServer' ||
     key === 'proxyAllServer' ||
     key === 'proxyBypassRules'
-  ));
+  );
+}
+
+function patchTouchesProxy(patch: Partial<AppSettings>): boolean {
+  return Object.keys(patch).some((key) => isProxyKey(key as keyof AppSettings));
 }
 
 function patchTouchesLaunchAtStartup(patch: Partial<AppSettings>): boolean {
@@ -47,6 +43,40 @@ function patchTouchesWatchedMemoryDirs(patch: Partial<AppSettings>): boolean {
   return Object.prototype.hasOwnProperty.call(patch, 'watchedMemoryDirs');
 }
 
+async function applySettingsSideEffects(
+  ctx: HostApiContext,
+  entries: Array<[keyof AppSettings, AppSettings[keyof AppSettings]]>,
+): Promise<void> {
+  const touchesProxy = entries.some(([key]) => isProxyKey(key));
+  const gatewayPortEntry = entries.find(([key]) => key === 'gatewayPort');
+  const gatewayPort = gatewayPortEntry?.[1];
+
+  if (typeof gatewayPort === 'number') {
+    ctx.gatewayManager.setConfiguredPort(gatewayPort);
+  }
+
+  if (touchesProxy) {
+    await applyProxySettings(await getAllSettings());
+  }
+  if (entries.some(([key]) => key === 'launchAtStartup')) {
+    await syncLaunchAtStartupSettingFromStore();
+  }
+
+  const state = ctx.gatewayManager.getStatus().state;
+  if (typeof gatewayPort === 'number') {
+    if (state === 'running') {
+      await ctx.gatewayManager.stop();
+      await ctx.gatewayManager.start();
+    } else if (state === 'stopped' || state === 'error') {
+      await ctx.gatewayManager.start();
+    } else {
+      await ctx.gatewayManager.restart();
+    }
+  } else if (touchesProxy && state === 'running') {
+    await ctx.gatewayManager.restart();
+  }
+}
+
 export async function handleSettingsRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -65,17 +95,8 @@ export async function handleSettingsRoutes(
       for (const [key, value] of entries) {
         await setSetting(key, value);
       }
-      if (patchTouchesProxy(patch)) {
-        await handleProxySettingsChange(ctx);
-      }
-      if (patchTouchesLaunchAtStartup(patch)) {
-        await syncLaunchAtStartupSettingFromStore();
-      }
-      if (patchTouchesGatewayPort(patch) && typeof patch.gatewayPort === 'number') {
-        ctx.gatewayManager.setConfiguredPort(patch.gatewayPort);
-        if (ctx.gatewayManager.getStatus().state === 'running') {
-          await ctx.gatewayManager.restart();
-        }
+      if (patchTouchesProxy(patch) || patchTouchesLaunchAtStartup(patch) || patchTouchesGatewayPort(patch)) {
+        await applySettingsSideEffects(ctx, entries);
       }
       if (patchTouchesMinimizeToTray(patch)) {
         ctx.eventBus.emit('settings:minimizeToTray-changed', { minimizeToTray: patch.minimizeToTray });
@@ -108,24 +129,8 @@ export async function handleSettingsRoutes(
     try {
       const body = await parseJsonBody<{ value: AppSettings[keyof AppSettings] }>(req);
       await setSetting(key, body.value);
-      if (
-        key === 'proxyEnabled' ||
-        key === 'proxyServer' ||
-        key === 'proxyHttpServer' ||
-        key === 'proxyHttpsServer' ||
-        key === 'proxyAllServer' ||
-        key === 'proxyBypassRules'
-      ) {
-        await handleProxySettingsChange(ctx);
-      }
-      if (key === 'launchAtStartup') {
-        await syncLaunchAtStartupSettingFromStore();
-      }
-      if (key === 'gatewayPort' && typeof body.value === 'number') {
-        ctx.gatewayManager.setConfiguredPort(body.value);
-        if (ctx.gatewayManager.getStatus().state === 'running') {
-          await ctx.gatewayManager.restart();
-        }
+      if (isProxyKey(key) || key === 'launchAtStartup' || key === 'gatewayPort') {
+        await applySettingsSideEffects(ctx, [[key, body.value]]);
       }
       sendJson(res, 200, { success: true });
     } catch (error) {
@@ -137,9 +142,9 @@ export async function handleSettingsRoutes(
   if (url.pathname === '/api/settings/reset' && req.method === 'POST') {
     try {
       await resetSettings();
-      await handleProxySettingsChange(ctx);
-      await syncLaunchAtStartupSettingFromStore();
-      sendJson(res, 200, { success: true, settings: await getAllSettings() });
+      const settings = await getAllSettings();
+      await applySettingsSideEffects(ctx, Object.entries(settings) as Array<[keyof AppSettings, AppSettings[keyof AppSettings]]>);
+      sendJson(res, 200, { success: true, settings });
     } catch (error) {
       sendJson(res, 500, { success: false, error: String(error) });
     }

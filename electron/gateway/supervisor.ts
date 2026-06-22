@@ -260,14 +260,6 @@ async function getListeningProcessIds(port: number): Promise<string[]> {
 async function terminateOrphanedProcessIds(port: number, pids: string[]): Promise<void> {
   logger.info(`Found orphaned process listening on port ${port} (PIDs: ${pids.join(', ')}), attempting to kill...`);
 
-  // Stop system-managed services BEFORE killing PIDs so the service manager
-  // cannot respawn the process during the kill/wait window.
-  if (process.platform === 'darwin') {
-    await unloadLaunchctlGatewayService();
-  } else if (process.platform === 'linux') {
-    await stopSystemdGatewayService();
-  }
-
   for (const pid of pids) {
     try {
       if (process.platform === 'win32') {

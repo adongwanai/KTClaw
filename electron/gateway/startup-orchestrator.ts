@@ -15,7 +15,6 @@ type StartupHooks = {
   resetStartupStderrLines: () => void;
   getStartupStderrLines: () => string[];
   assertLifecycle: (phase: string) => void;
-  stopSystemService: () => Promise<void>;
   findExistingGateway: (port: number, ownedPid?: number) => Promise<ExistingGatewayInfo | null>;
   connect: (port: number, externalToken?: string) => Promise<void>;
   onConnectedToExistingGateway: () => void;
@@ -39,10 +38,6 @@ export async function runGatewayStartupSequence(hooks: StartupHooks): Promise<vo
     hooks.resetStartupStderrLines();
 
     try {
-      logger.debug('Stopping any system-managed gateway services...');
-      await hooks.stopSystemService();
-      hooks.assertLifecycle('start/stop-system-service');
-
       logger.debug('Checking for existing Gateway...');
       const existing = await hooks.findExistingGateway(hooks.port, hooks.ownedPid);
       hooks.assertLifecycle('start/find-existing');

@@ -44,6 +44,8 @@ describe('settings route gateway port wiring', () => {
       gatewayManager: {
         getStatus: vi.fn(() => ({ state: 'running', port: 18789 })),
         setConfiguredPort: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
         restart: vi.fn(),
       },
     } as never;
@@ -58,11 +60,13 @@ describe('settings route gateway port wiring', () => {
     expect(handled).toBe(true);
     expect(mockSetSetting).toHaveBeenCalledWith('gatewayPort', 24567);
     expect(ctx.gatewayManager.setConfiguredPort).toHaveBeenCalledWith(24567);
-    expect(ctx.gatewayManager.restart).toHaveBeenCalledTimes(1);
+    expect(ctx.gatewayManager.stop).toHaveBeenCalledTimes(1);
+    expect(ctx.gatewayManager.start).toHaveBeenCalledTimes(1);
+    expect(ctx.gatewayManager.restart).not.toHaveBeenCalled();
     expect(mockSendJson).toHaveBeenCalledWith(expect.anything(), 200, { success: true });
   });
 
-  it('updates the configured gateway port without restarting when the gateway is stopped', async () => {
+  it('updates the configured gateway port and starts the gateway when it is stopped', async () => {
     mockParseJsonBody.mockResolvedValue({ value: 24567 });
 
     const { handleSettingsRoutes } = await import('@electron/api/routes/settings');
@@ -70,6 +74,7 @@ describe('settings route gateway port wiring', () => {
       gatewayManager: {
         getStatus: vi.fn(() => ({ state: 'stopped', port: 18789 })),
         setConfiguredPort: vi.fn(),
+        start: vi.fn(),
         restart: vi.fn(),
       },
     } as never;
@@ -84,6 +89,7 @@ describe('settings route gateway port wiring', () => {
     expect(handled).toBe(true);
     expect(mockSetSetting).toHaveBeenCalledWith('gatewayPort', 24567);
     expect(ctx.gatewayManager.setConfiguredPort).toHaveBeenCalledWith(24567);
+    expect(ctx.gatewayManager.start).toHaveBeenCalledTimes(1);
     expect(ctx.gatewayManager.restart).not.toHaveBeenCalled();
   });
 });

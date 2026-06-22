@@ -6,6 +6,7 @@ import { create } from 'zustand';
 import { hostApiFetch } from '@/lib/host-api';
 import { invokeIpc } from '@/lib/api-client';
 import { subscribeHostEvent } from '@/lib/host-events';
+import { DEFAULT_OPENCLAW_GATEWAY_PORT } from '../../shared/gateway-defaults';
 import type { GatewayStatus } from '../types/gateway';
 
 let gatewayInitPromise: Promise<void> | null = null;
@@ -225,7 +226,7 @@ function mapChannelStatus(status: string): 'connected' | 'connecting' | 'disconn
 export const useGatewayStore = create<GatewayState>((set, get) => ({
   status: {
     state: 'stopped',
-    port: 18789,
+    port: DEFAULT_OPENCLAW_GATEWAY_PORT,
   },
   health: null,
   isInitialized: false,

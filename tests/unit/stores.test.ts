@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSettingsStore } from '@/stores/settings';
 import { useGatewayStore } from '@/stores/gateway';
+import { DEFAULT_OPENCLAW_GATEWAY_PORT } from '../../shared/gateway-defaults';
 
 describe('Settings Store', () => {
   beforeEach(() => {
@@ -14,7 +15,7 @@ describe('Settings Store', () => {
       sidebarCollapsed: false,
       devModeUnlocked: false,
       gatewayAutoStart: true,
-      gatewayPort: 18789,
+      gatewayPort: DEFAULT_OPENCLAW_GATEWAY_PORT,
       autoCheckUpdate: true,
       autoDownloadUpdate: false,
       startMinimized: false,
@@ -95,7 +96,7 @@ describe('Gateway Store', () => {
   beforeEach(() => {
     // Reset store
     useGatewayStore.setState({
-      status: { state: 'stopped', port: 18789 },
+      status: { state: 'stopped', port: DEFAULT_OPENCLAW_GATEWAY_PORT },
       isInitialized: false,
     });
   });
@@ -103,7 +104,7 @@ describe('Gateway Store', () => {
   it('should have default status', () => {
     const state = useGatewayStore.getState();
     expect(state.status.state).toBe('stopped');
-    expect(state.status.port).toBe(18789);
+    expect(state.status.port).toBe(DEFAULT_OPENCLAW_GATEWAY_PORT);
   });
   
   it('should update status', () => {

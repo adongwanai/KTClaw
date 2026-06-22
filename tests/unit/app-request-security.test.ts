@@ -27,6 +27,7 @@ const {
   mockGetAllSettings,
   mockGetSetting,
   mockResetSettings,
+  mockSetSetting,
   mockProviderService,
   mockCheckPermission,
   mockNativeImageCreateFromPath,
@@ -34,6 +35,7 @@ const {
   mockGetAllSettings: vi.fn(),
   mockGetSetting: vi.fn(),
   mockResetSettings: vi.fn(),
+  mockSetSetting: vi.fn(),
   mockCheckPermission: vi.fn(async () => 'allow'),
   mockNativeImageCreateFromPath: vi.fn(() => ({
     isEmpty: () => false,
@@ -103,7 +105,7 @@ vi.mock('@electron/utils/store', () => ({
   getAllSettings: mockGetAllSettings,
   getSetting: mockGetSetting,
   resetSettings: mockResetSettings,
-  setSetting: vi.fn(),
+  setSetting: mockSetSetting,
 }));
 
 vi.mock('@electron/utils/permissions-enforcer', () => ({
@@ -134,6 +136,7 @@ const gatewayManager = {
   start: vi.fn(),
   stop: vi.fn(),
   restart: vi.fn(),
+  setConfiguredPort: vi.fn(),
   rpc: vi.fn(),
   on: vi.fn(),
 };
@@ -161,6 +164,10 @@ describe('app:request security', () => {
     handlers.clear();
     vi.clearAllMocks();
     gatewayManager.getStatus.mockReturnValue({ state: 'stopped', port: 18789 });
+    gatewayManager.setConfiguredPort.mockReturnValue(undefined);
+    gatewayManager.stop.mockResolvedValue(undefined);
+    gatewayManager.start.mockResolvedValue(undefined);
+    gatewayManager.restart.mockResolvedValue(undefined);
     mockCheckPermission.mockResolvedValue('allow');
     fsAccessMock.mockResolvedValue(undefined);
     fsReadFileMock.mockResolvedValue(Buffer.from('file'));
@@ -241,6 +248,62 @@ describe('app:request security', () => {
         },
       },
     });
+  });
+
+  it('applies gateway port side effects for unified settings:set', async () => {
+    const handler = handlers.get('app:request');
+    expect(handler).toBeDefined();
+    gatewayManager.getStatus.mockReturnValue({ state: 'running', port: 18789 });
+
+    const response = await handler?.({}, {
+      id: 'req-port',
+      module: 'settings',
+      action: 'set',
+      payload: { key: 'gatewayPort', value: 24567 },
+    });
+
+    expect(mockSetSetting).toHaveBeenCalledWith('gatewayPort', 24567);
+    expect(gatewayManager.setConfiguredPort).toHaveBeenCalledWith(24567);
+    expect(gatewayManager.stop).toHaveBeenCalledTimes(1);
+    expect(gatewayManager.start).toHaveBeenCalledTimes(1);
+    expect(gatewayManager.restart).not.toHaveBeenCalled();
+    expect(response).toEqual({
+      id: 'req-port',
+      ok: true,
+      data: { success: true },
+    });
+  });
+
+  it('applies gateway port side effects for legacy settings:setMany', async () => {
+    const handler = handlers.get('settings:setMany');
+    expect(handler).toBeDefined();
+    gatewayManager.getStatus.mockReturnValue({ state: 'running', port: 18789 });
+
+    const response = await handler?.({}, {
+      gatewayPort: 24568,
+      language: 'en',
+    });
+
+    expect(mockSetSetting).toHaveBeenCalledWith('gatewayPort', 24568);
+    expect(gatewayManager.setConfiguredPort).toHaveBeenCalledWith(24568);
+    expect(gatewayManager.stop).toHaveBeenCalledTimes(1);
+    expect(gatewayManager.start).toHaveBeenCalledTimes(1);
+    expect(gatewayManager.restart).not.toHaveBeenCalled();
+    expect(response).toEqual({ success: true });
+  });
+
+  it('starts the gateway for gateway port IPC changes while gateway is stopped', async () => {
+    const handler = handlers.get('settings:set');
+    expect(handler).toBeDefined();
+    gatewayManager.getStatus.mockReturnValue({ state: 'stopped', port: 18789 });
+
+    const response = await handler?.({}, 'gatewayPort', 24569);
+
+    expect(mockSetSetting).toHaveBeenCalledWith('gatewayPort', 24569);
+    expect(gatewayManager.setConfiguredPort).toHaveBeenCalledWith(24569);
+    expect(gatewayManager.start).toHaveBeenCalledTimes(1);
+    expect(gatewayManager.restart).not.toHaveBeenCalled();
+    expect(response).toEqual({ success: true });
   });
 
   it('sanitizes gatewayToken for legacy settings:reset', async () => {

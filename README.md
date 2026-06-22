@@ -213,7 +213,7 @@ The wizard preselects your system language when it is supported, and falls back 
 
 ### Gateway Port
 
-KTClaw starts the managed OpenClaw Gateway on port `18789` by default. If another Claw app already uses that port, change the port in **Settings -> Gateway Configuration**. Saving the port restarts the managed Gateway and syncs the local OpenClaw client target to `ws://127.0.0.1:<port>`.
+KTClaw starts the managed OpenClaw Gateway on port `18790` by default to avoid the standard OpenClaw Gateway port `18789`. If another app already uses the configured port, change it in **Settings -> Gateway Configuration**. Saving the port restarts the managed Gateway and syncs the local OpenClaw client target to `ws://127.0.0.1:<port>`.
 
 ### Proxy Settings
 

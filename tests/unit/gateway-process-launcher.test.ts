@@ -56,11 +56,11 @@ describe('launchGatewayProcess', () => {
     const { launchGatewayProcess } = await import('@electron/gateway/process-launcher');
 
     await launchGatewayProcess({
-      port: 18789,
+      port: 24567,
       launchContext: {
         openclawDir: 'C:/repo/node_modules/openclaw',
         entryScript: 'C:/repo/node_modules/openclaw/openclaw.mjs',
-        gatewayArgs: ['gateway', '--port', '18789', '--token', 'token', '--allow-unconfigured'],
+        gatewayArgs: ['gateway', '--port', '24567', '--token', 'token', '--allow-unconfigured'],
         forkEnv: {},
         mode: 'dev',
         binPathExists: true,
@@ -80,6 +80,7 @@ describe('launchGatewayProcess', () => {
 
     const options = forkMock.mock.calls[0]?.[2] as { env?: Record<string, string> } | undefined;
     expect(options?.env?.OPENCLAW_NODE_OPTIONS_READY).toBe('1');
+    expect(options?.env?.OPENCLAW_GATEWAY_PORT).toBe('24567');
     expect(options?.env?.NODE_OPTIONS).toContain('--disable-warning=ExperimentalWarning');
     expect(options?.env?.NODE_OPTIONS).toContain('gateway-fetch-preload.cjs');
   });

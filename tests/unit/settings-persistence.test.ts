@@ -3,6 +3,10 @@
  * Covers: AppSettings schema fields, renderer store wiring, side-effect hooks
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  DEFAULT_OPENCLAW_GATEWAY_PORT,
+  LEGACY_OPENCLAW_GATEWAY_PORT,
+} from '../../shared/gateway-defaults';
 
 // ─── Main-process store tests ────────────────────────────────────────────────
 
@@ -88,6 +92,28 @@ describe('AppSettings schema — new fields', () => {
     expect(settings.notificationsEnabled).toBe(true);
   });
 
+  it('migrates the old implicit gateway default port to the current default', async () => {
+    const { getAllSettings } = await import('../../electron/utils/store');
+    storeData.gatewayPort = LEGACY_OPENCLAW_GATEWAY_PORT;
+    storeData.gatewayPortExplicit = false;
+
+    const settings = await getAllSettings();
+
+    expect(settings.gatewayPort).toBe(DEFAULT_OPENCLAW_GATEWAY_PORT);
+    expect(storeData.gatewayPort).toBe(DEFAULT_OPENCLAW_GATEWAY_PORT);
+  });
+
+  it('preserves an explicitly configured legacy gateway port', async () => {
+    const { getAllSettings } = await import('../../electron/utils/store');
+    storeData.gatewayPort = LEGACY_OPENCLAW_GATEWAY_PORT;
+    storeData.gatewayPortExplicit = true;
+
+    const settings = await getAllSettings();
+
+    expect(settings.gatewayPort).toBe(LEGACY_OPENCLAW_GATEWAY_PORT);
+    expect(storeData.gatewayPort).toBe(LEGACY_OPENCLAW_GATEWAY_PORT);
+  });
+
   it('getAllSettings returns channelRouteRules, filePathAllowlist, terminalCommandBlocklist, customToolGrants as empty arrays', async () => {
     const { getAllSettings } = await import('../../electron/utils/store');
     const settings = await getAllSettings();
@@ -123,6 +149,14 @@ describe('AppSettings schema — new fields', () => {
     await setSetting('watchedMemoryDirs', ['/home/user/docs']);
     const value = await getSetting('watchedMemoryDirs');
     expect(value).toEqual(['/home/user/docs']);
+  });
+
+  it('marks gatewayPort explicit when the user saves a port', async () => {
+    const { setSetting, getSetting } = await import('../../electron/utils/store');
+    await setSetting('gatewayPort', 24567);
+
+    expect(await getSetting('gatewayPort')).toBe(24567);
+    expect(storeData.gatewayPortExplicit).toBe(true);
   });
 
   it('clears legacy static default models instead of persisting bundled choices', async () => {

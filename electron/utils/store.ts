@@ -5,6 +5,10 @@
 
 import { randomBytes } from 'crypto';
 import { app } from 'electron';
+import {
+  DEFAULT_OPENCLAW_GATEWAY_PORT,
+  LEGACY_OPENCLAW_GATEWAY_PORT,
+} from '../../shared/gateway-defaults';
 import { resolveSupportedLanguage } from '../../shared/language';
 
 // Lazy-load electron-store (ESM module)
@@ -60,6 +64,7 @@ export interface AppSettings {
   // Gateway
   gatewayAutoStart: boolean;
   gatewayPort: number;
+  gatewayPortExplicit: boolean;
   gatewayToken: string;
   proxyEnabled: boolean;
   proxyServer: string;
@@ -157,7 +162,8 @@ function createDefaultSettings(): AppSettings {
 
     // Gateway
     gatewayAutoStart: true,
-    gatewayPort: 18789,
+    gatewayPort: DEFAULT_OPENCLAW_GATEWAY_PORT,
+    gatewayPortExplicit: false,
     gatewayToken: generateToken(),
     proxyEnabled: false,
     proxyServer: '',
@@ -235,11 +241,31 @@ async function getSettingsStore() {
   return settingsStoreInstance;
 }
 
+function migrateGatewayPortDefault(
+  store: { set: (key: string, value: unknown) => void },
+  settings: AppSettings,
+): void {
+  if (
+    settings.gatewayPort === LEGACY_OPENCLAW_GATEWAY_PORT
+    && settings.gatewayPortExplicit !== true
+  ) {
+    store.set('gatewayPort', DEFAULT_OPENCLAW_GATEWAY_PORT);
+    store.set('gatewayPortExplicit', false);
+    settings.gatewayPort = DEFAULT_OPENCLAW_GATEWAY_PORT;
+    settings.gatewayPortExplicit = false;
+  }
+}
+
 /**
  * Get a setting value
  */
 export async function getSetting<K extends keyof AppSettings>(key: K): Promise<AppSettings[K]> {
   const store = await getSettingsStore();
+  if (key === 'gatewayPort' || key === 'gatewayPortExplicit') {
+    const settings = store.store as AppSettings;
+    migrateGatewayPortDefault(store, settings);
+    return settings[key];
+  }
   const rawValue = store.get(key);
   if (key === 'updateChannel') {
     const normalized = normalizeUpdateChannel(rawValue);
@@ -279,6 +305,15 @@ export async function setSetting<K extends keyof AppSettings>(
     store.set('defaultModel', normalizeDefaultModel(value));
     return;
   }
+  if (key === 'gatewayPort') {
+    store.set('gatewayPort', value);
+    store.set('gatewayPortExplicit', true);
+    return;
+  }
+  if (key === 'gatewayPortExplicit') {
+    store.set('gatewayPortExplicit', Boolean(value));
+    return;
+  }
   store.set(key, value);
 }
 
@@ -288,6 +323,7 @@ export async function setSetting<K extends keyof AppSettings>(
 export async function getAllSettings(): Promise<AppSettings> {
   const store = await getSettingsStore();
   const settings = store.store as AppSettings;
+  migrateGatewayPortDefault(store, settings);
   const normalizedChannel = normalizeUpdateChannel(settings.updateChannel);
   if (settings.updateChannel !== normalizedChannel) {
     store.set('updateChannel', normalizedChannel);

@@ -56,6 +56,7 @@ export function Models({ embedded = false }: ModelsProps) {
   const [usagePage, setUsagePage] = useState(1);
   const [selectedUsageEntry, setSelectedUsageEntry] = useState<UsageHistoryEntry | null>(null);
   const [gatewayPortDraft, setGatewayPortDraft] = useState(() => String(gatewayPort));
+  const [savingGatewayPort, setSavingGatewayPort] = useState(false);
   const [doctorRunning, setDoctorRunning] = useState(false);
   const [doctorSummary, setDoctorSummary] = useState<string | null>(null);
   const usageFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -208,15 +209,23 @@ export function Models({ embedded = false }: ModelsProps) {
       ? '连接中'
       : '已断开';
 
-  const handleGatewayPortSave = () => {
+  const handleGatewayPortSave = async () => {
     const nextPort = Number.parseInt(gatewayPortDraft, 10);
     if (Number.isNaN(nextPort) || nextPort < 1024 || nextPort > 65535) {
       setDoctorSummary('Gateway port must be between 1024 and 65535.');
       return;
     }
 
-    setGatewayPort(nextPort);
-    setDoctorSummary(`Gateway port updated to ${nextPort}.`);
+    setSavingGatewayPort(true);
+    try {
+      await setGatewayPort(nextPort);
+      setDoctorSummary(`Gateway port updated to ${nextPort}.`);
+    } catch (error) {
+      setGatewayPortDraft(String(gatewayPort));
+      setDoctorSummary(`Gateway port update failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setSavingGatewayPort(false);
+    }
   };
 
   const handleDefaultModelChange = (value: string) => {
@@ -386,7 +395,7 @@ export function Models({ embedded = false }: ModelsProps) {
                   variant="outline"
                   className="rounded-full"
                   onClick={handleGatewayPortSave}
-                  disabled={gatewayPortDraft === String(gatewayPort)}
+                  disabled={savingGatewayPort || gatewayPortDraft === String(gatewayPort)}
                 >
                   保存端口
                 </Button>

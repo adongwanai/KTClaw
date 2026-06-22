@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { PORTS } from '../../utils/config';
+import { getSetting } from '../../utils/store';
 import { listAgentsSnapshot } from '../../utils/agent-config';
 import { buildOpenClawControlUiUrl } from '../../utils/openclaw-control-ui';
 import { isOutboundMediaPath } from '../../utils/outbound-media';
@@ -13,6 +14,13 @@ import {
 } from '../../../shared/chat-media-attachments';
 import type { HostApiContext } from '../context';
 import { parseJsonBody, sendJson } from '../route-utils';
+
+async function syncConfiguredGatewayPort(ctx: HostApiContext): Promise<void> {
+  const configuredPort = await getSetting('gatewayPort');
+  if (typeof configuredPort === 'number') {
+    ctx.gatewayManager.setConfiguredPort(configuredPort);
+  }
+}
 
 export async function handleGatewayRoutes(
   req: IncomingMessage,
@@ -43,6 +51,7 @@ export async function handleGatewayRoutes(
 
   if (url.pathname === '/api/gateway/start' && req.method === 'POST') {
     try {
+      await syncConfiguredGatewayPort(ctx);
       await ctx.gatewayManager.start();
       sendJson(res, 200, { success: true });
     } catch (error) {
@@ -63,6 +72,7 @@ export async function handleGatewayRoutes(
 
   if (url.pathname === '/api/gateway/restart' && req.method === 'POST') {
     try {
+      await syncConfiguredGatewayPort(ctx);
       await ctx.gatewayManager.restart();
       sendJson(res, 200, { success: true });
     } catch (error) {

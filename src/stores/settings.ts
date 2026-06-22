@@ -6,6 +6,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import i18n from '@/i18n';
 import { hostApiFetch } from '@/lib/host-api';
+import { DEFAULT_OPENCLAW_GATEWAY_PORT } from '../../shared/gateway-defaults';
 import { resolveSupportedLanguage } from '../../shared/language';
 
 type Theme = 'light' | 'dark' | 'system';
@@ -105,7 +106,7 @@ interface SettingsState {
   setLaunchAtStartup: (value: boolean) => void;
   setTelemetryEnabled: (value: boolean) => void;
   setGatewayAutoStart: (value: boolean) => void;
-  setGatewayPort: (port: number) => void;
+  setGatewayPort: (port: number) => Promise<void>;
   setProxyEnabled: (value: boolean) => void;
   setProxyServer: (value: string) => void;
   setProxyHttpServer: (value: string) => void;
@@ -269,7 +270,7 @@ const defaultSettings = {
   launchAtStartup: false,
   telemetryEnabled: true,
   gatewayAutoStart: true,
-  gatewayPort: 18789,
+  gatewayPort: DEFAULT_OPENCLAW_GATEWAY_PORT,
   proxyEnabled: false,
   proxyServer: '',
   proxyHttpServer: '',
@@ -405,12 +406,18 @@ export const useSettingsStore = create<SettingsState>()(
           body: JSON.stringify({ value: gatewayAutoStart }),
         }).catch(() => { });
       },
-      setGatewayPort: (gatewayPort) => {
+      setGatewayPort: async (gatewayPort) => {
+        const previousPort = get().gatewayPort;
         set({ gatewayPort });
-        void hostApiFetch('/api/settings/gatewayPort', {
-          method: 'PUT',
-          body: JSON.stringify({ value: gatewayPort }),
-        }).catch(() => { });
+        try {
+          await hostApiFetch('/api/settings/gatewayPort', {
+            method: 'PUT',
+            body: JSON.stringify({ value: gatewayPort }),
+          });
+        } catch (error) {
+          set({ gatewayPort: previousPort });
+          throw error;
+        }
       },
       setProxyEnabled: (proxyEnabled) => set({ proxyEnabled }),
       setProxyServer: (proxyServer) => set({ proxyServer }),

@@ -26,7 +26,6 @@ function createHooks(overrides: HookOverrides = {}) {
     }),
     getStartupStderrLines: vi.fn(() => startupStderrLines),
     assertLifecycle: vi.fn(),
-    stopSystemService: vi.fn(async () => {}),
     findExistingGateway: vi.fn(async () => null),
     connect: vi.fn(async () => {}),
     onConnectedToExistingGateway: vi.fn(),
@@ -54,7 +53,6 @@ describe('gateway startup hardening', () => {
 
     await runGatewayStartupSequence(hooks);
 
-    expect(hooks.stopSystemService).toHaveBeenCalledTimes(1);
     expect(hooks.findExistingGateway).toHaveBeenCalledWith(18789, 1234);
     expect(hooks.connect).toHaveBeenCalledWith(22334, 'external-token');
     expect(hooks.onConnectedToExistingGateway).toHaveBeenCalledTimes(1);

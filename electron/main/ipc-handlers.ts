@@ -269,6 +269,45 @@ function isLaunchAtStartupKey(key: keyof AppSettings): boolean {
   return key === 'launchAtStartup';
 }
 
+function isGatewayPortKey(key: keyof AppSettings): boolean {
+  return key === 'gatewayPort';
+}
+
+async function applySettingsSideEffects(
+  gatewayManager: GatewayManager,
+  entries: Array<[keyof AppSettings, AppSettings[keyof AppSettings]]>,
+): Promise<void> {
+  const touchesProxy = entries.some(([key]) => isProxyKey(key));
+  const gatewayPortEntry = entries.find(([key]) => isGatewayPortKey(key));
+  const gatewayPort = gatewayPortEntry?.[1];
+
+  if (typeof gatewayPort === 'number') {
+    gatewayManager.setConfiguredPort(gatewayPort);
+  }
+
+  if (touchesProxy) {
+    const settings = await getAllSettings();
+    await applyProxySettings(settings);
+  }
+  if (entries.some(([key]) => isLaunchAtStartupKey(key))) {
+    await syncLaunchAtStartupSettingFromStore();
+  }
+
+  const state = gatewayManager.getStatus().state;
+  if (typeof gatewayPort === 'number') {
+    if (state === 'running') {
+      await gatewayManager.stop();
+      await gatewayManager.start();
+    } else if (state === 'stopped' || state === 'error') {
+      await gatewayManager.start();
+    } else {
+      await gatewayManager.restart();
+    }
+  } else if (touchesProxy && state === 'running') {
+    await gatewayManager.restart();
+  }
+}
+
 function sanitizeRendererSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): AppSettings[K] {
   if (key === 'gatewayToken') {
     return '' as AppSettings[K];
@@ -285,13 +324,6 @@ function sanitizeRendererSettings(settings: AppSettings): AppSettings {
 
 function registerUnifiedRequestHandlers(gatewayManager: GatewayManager): void {
   const providerService = getProviderService();
-  const handleProxySettingsChange = async () => {
-    const settings = await getAllSettings();
-    await applyProxySettings(settings);
-    if (gatewayManager.getStatus().state === 'running') {
-      await gatewayManager.restart();
-    }
-  };
 
   ipcMain.handle('app:request', async (_, request: AppRequest): Promise<AppResponse> => {
     if (!request || typeof request.module !== 'string' || typeof request.action !== 'string') {
@@ -761,12 +793,7 @@ function registerUnifiedRequestHandlers(gatewayManager: GatewayManager): void {
             const value = Array.isArray(payload) ? payload[1] : payload?.value;
             if (!key) throw new Error('Invalid settings.set payload');
             await setSetting(key, value as never);
-            if (isProxyKey(key)) {
-              await handleProxySettingsChange();
-            }
-            if (isLaunchAtStartupKey(key)) {
-              await syncLaunchAtStartupSettingFromStore();
-            }
+            await applySettingsSideEffects(gatewayManager, [[key, value as AppSettings[keyof AppSettings]]]);
             data = { success: true };
             break;
           }
@@ -776,20 +803,14 @@ function registerUnifiedRequestHandlers(gatewayManager: GatewayManager): void {
             for (const [key, value] of entries) {
               await setSetting(key, value as never);
             }
-            if (entries.some(([key]) => isProxyKey(key))) {
-              await handleProxySettingsChange();
-            }
-            if (entries.some(([key]) => isLaunchAtStartupKey(key))) {
-              await syncLaunchAtStartupSettingFromStore();
-            }
+            await applySettingsSideEffects(gatewayManager, entries);
             data = { success: true };
             break;
           }
           if (request.action === 'reset') {
             await resetSettings();
             const settings = await getAllSettings();
-            await handleProxySettingsChange();
-            await syncLaunchAtStartupSettingFromStore();
+            await applySettingsSideEffects(gatewayManager, Object.entries(settings) as Array<[keyof AppSettings, AppSettings[keyof AppSettings]]>);
             data = { success: true, settings: sanitizeRendererSettings(settings) };
             break;
           }
@@ -1137,6 +1158,13 @@ function registerGatewayHandlers(
     timeoutMs?: number;
   };
 
+  const syncConfiguredGatewayPort = async (): Promise<void> => {
+    const configuredPort = await getSetting('gatewayPort');
+    if (typeof configuredPort === 'number') {
+      gatewayManager.setConfiguredPort(configuredPort);
+    }
+  };
+
   // Get Gateway status
   ipcMain.handle('gateway:status', () => {
     return gatewayManager.getStatus();
@@ -1150,6 +1178,7 @@ function registerGatewayHandlers(
   // Start Gateway
   ipcMain.handle('gateway:start', async () => {
     try {
+      await syncConfiguredGatewayPort();
       await gatewayManager.start();
       return { success: true };
     } catch (error) {
@@ -1170,6 +1199,7 @@ function registerGatewayHandlers(
   // Restart Gateway
   ipcMain.handle('gateway:restart', async () => {
     try {
+      await syncConfiguredGatewayPort();
       await gatewayManager.restart();
       return { success: true };
     } catch (error) {
@@ -1193,7 +1223,7 @@ function registerGatewayHandlers(
   ipcMain.handle('gateway:httpProxy', async (_, request: GatewayHttpProxyRequest) => {
     try {
       const status = gatewayManager.getStatus();
-      const port = status.port || 18789;
+      const port = status.port || PORTS.OPENCLAW_GATEWAY;
       const path = request?.path && request.path.startsWith('/') ? request.path : '/';
       const method = (request?.method || 'GET').toUpperCase();
       const timeoutMs =
@@ -1368,7 +1398,7 @@ function registerGatewayHandlers(
     try {
       const status = gatewayManager.getStatus();
       const token = await getSetting('gatewayToken');
-      const port = status.port || 18789;
+      const port = status.port || PORTS.OPENCLAW_GATEWAY;
       const url = buildOpenClawControlUiUrl(port, token);
       return { success: true, url, port, token };
     } catch (error) {
@@ -2327,14 +2357,6 @@ function registerAppHandlers(): void {
 }
 
 function registerSettingsHandlers(gatewayManager: GatewayManager): void {
-  const handleProxySettingsChange = async () => {
-    const settings = await getAllSettings();
-    await applyProxySettings(settings);
-    if (gatewayManager.getStatus().state === 'running') {
-      await gatewayManager.restart();
-    }
-  };
-
   ipcMain.handle('settings:get', async (_, key: keyof AppSettings) => {
     const value = await getSetting(key);
     return sanitizeRendererSetting(key, value);
@@ -2346,20 +2368,7 @@ function registerSettingsHandlers(gatewayManager: GatewayManager): void {
 
   ipcMain.handle('settings:set', async (_, key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => {
     await setSetting(key, value as never);
-
-    if (
-      key === 'proxyEnabled' ||
-      key === 'proxyServer' ||
-      key === 'proxyHttpServer' ||
-      key === 'proxyHttpsServer' ||
-      key === 'proxyAllServer' ||
-      key === 'proxyBypassRules'
-    ) {
-      await handleProxySettingsChange();
-    }
-    if (key === 'launchAtStartup') {
-      await syncLaunchAtStartupSettingFromStore();
-    }
+    await applySettingsSideEffects(gatewayManager, [[key, value]]);
 
     return { success: true };
   });
@@ -2369,20 +2378,7 @@ function registerSettingsHandlers(gatewayManager: GatewayManager): void {
     for (const [key, value] of entries) {
       await setSetting(key, value as never);
     }
-
-    if (entries.some(([key]) =>
-      key === 'proxyEnabled' ||
-      key === 'proxyServer' ||
-      key === 'proxyHttpServer' ||
-      key === 'proxyHttpsServer' ||
-      key === 'proxyAllServer' ||
-      key === 'proxyBypassRules'
-    )) {
-      await handleProxySettingsChange();
-    }
-    if (entries.some(([key]) => key === 'launchAtStartup')) {
-      await syncLaunchAtStartupSettingFromStore();
-    }
+    await applySettingsSideEffects(gatewayManager, entries);
 
     return { success: true };
   });
@@ -2390,8 +2386,7 @@ function registerSettingsHandlers(gatewayManager: GatewayManager): void {
   ipcMain.handle('settings:reset', async () => {
     await resetSettings();
     const settings = await getAllSettings();
-    await handleProxySettingsChange();
-    await syncLaunchAtStartupSettingFromStore();
+    await applySettingsSideEffects(gatewayManager, Object.entries(settings) as Array<[keyof AppSettings, AppSettings[keyof AppSettings]]>);
     return { success: true, settings: sanitizeRendererSettings(settings) };
   });
 }

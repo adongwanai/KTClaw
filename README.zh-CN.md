@@ -209,7 +209,7 @@ pnpm dev
 
 ### Gateway 端口
 
-KTClaw 默认在 `18789` 端口启动托管的 OpenClaw Gateway。如果其他 Claw 应用已经占用了这个端口，可以在 **设置 -> Gateway 配置** 中修改端口。保存后会自动重启托管 Gateway，并把本地 OpenClaw 客户端目标同步为 `ws://127.0.0.1:<port>`。
+KTClaw 默认在 `18790` 端口启动托管的 OpenClaw Gateway，以避开 OpenClaw Gateway 的标准端口 `18789`。如果其他应用已经占用了当前配置的端口，可以在 **设置 -> Gateway 配置** 中修改端口。保存后会自动重启托管 Gateway，并把本地 OpenClaw 客户端目标同步为 `ws://127.0.0.1:<port>`。
 
 ### 代理设置
 

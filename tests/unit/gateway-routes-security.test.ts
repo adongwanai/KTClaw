@@ -96,6 +96,30 @@ describe('gateway routes security', () => {
     });
   });
 
+  it('syncs the persisted gateway port before starting the gateway', async () => {
+    const { handleGatewayRoutes } = await import('@electron/api/routes/gateway');
+    const setConfiguredPort = vi.fn();
+    const start = vi.fn(async () => undefined);
+    getSettingMock.mockResolvedValueOnce(24567);
+
+    const handled = await handleGatewayRoutes(
+      { method: 'POST' } as IncomingMessage,
+      {} as ServerResponse,
+      new URL('http://127.0.0.1:3210/api/gateway/start'),
+      {
+        gatewayManager: {
+          setConfiguredPort,
+          start,
+        },
+      } as never,
+    );
+
+    expect(handled).toBe(true);
+    expect(setConfiguredPort).toHaveBeenCalledWith(24567);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(sendJsonMock).toHaveBeenCalledWith(expect.anything(), 200, { success: true });
+  });
+
   it('rejects non-staged media paths for send-with-media', async () => {
     const { handleGatewayRoutes } = await import('@electron/api/routes/gateway');
     const rpcMock = vi.fn();

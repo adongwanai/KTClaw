@@ -631,6 +631,7 @@ export async function prepareGatewayLaunchContext(port: number): Promise<Gateway
     PYTHONUTF8: '1',
     PYTHONIOENCODING: 'utf-8',
     ...getImageSearchModelRuntimeEnv(),
+    OPENCLAW_GATEWAY_PORT: String(port),
   };
 
   return {

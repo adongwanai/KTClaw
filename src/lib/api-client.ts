@@ -5,6 +5,7 @@ import {
   mapBackendErrorCode,
   normalizeAppError,
 } from './error-model';
+import { DEFAULT_OPENCLAW_GATEWAY_PORT } from '../../shared/gateway-defaults';
 export { AppError } from './error-model';
 
 export type TransportKind = 'ipc' | 'ws' | 'http';
@@ -157,7 +158,7 @@ async function resolveGatewayPort(): Promise<number> {
   }
 
   const status = await invokeViaIpc<GatewayStatusLike>('gateway:status', []);
-  const port = typeof status?.port === 'number' && status.port > 0 ? status.port : 18789;
+  const port = typeof status?.port === 'number' && status.port > 0 ? status.port : DEFAULT_OPENCLAW_GATEWAY_PORT;
   cachedGatewayPort = { port, expiresAt: now + 5000 };
   return port;
 }

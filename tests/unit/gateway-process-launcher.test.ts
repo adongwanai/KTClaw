@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { appMock, forkMock, spawnMock, writeFileSyncMock, existsSyncMock } = vi.hoisted(() => ({
+const { appMock, forkMock, writeFileSyncMock, existsSyncMock } = vi.hoisted(() => ({
   appMock: {
     isPackaged: false,
     getPath: vi.fn(() => 'C:/Users/test/AppData/Roaming/KTClaw'),
   },
   forkMock: vi.fn(),
-  spawnMock: vi.fn(),
   writeFileSyncMock: vi.fn(),
   existsSyncMock: vi.fn(),
 }));
@@ -16,10 +15,6 @@ vi.mock('electron', () => ({
   utilityProcess: {
     fork: (...args: unknown[]) => forkMock(...args),
   },
-}));
-
-vi.mock('node:child_process', () => ({
-  spawn: (...args: unknown[]) => spawnMock(...args),
 }));
 
 vi.mock('fs', async () => {
@@ -32,9 +27,7 @@ vi.mock('fs', async () => {
 });
 
 describe('launchGatewayProcess', () => {
-  const originalExecPath = process.execPath;
-
-  function createMockChild(pid = 12345) {
+  function createMockChild() {
     const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
     const on = (event: string, handler: (...args: unknown[]) => void) => {
       const current = listeners.get(event) ?? [];
@@ -47,7 +40,7 @@ describe('launchGatewayProcess', () => {
       }
     };
     const child = {
-      pid,
+      pid: 12345,
       stderr: { on },
       stdout: { on },
       on,
@@ -61,11 +54,6 @@ describe('launchGatewayProcess', () => {
     appMock.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
     forkMock.mockImplementation(() => createMockChild());
-    spawnMock.mockImplementation(() => createMockChild(23456));
-    Object.defineProperty(process, 'execPath', {
-      value: originalExecPath,
-      configurable: true,
-    });
   });
 
   it('marks OpenClaw node options as ready to avoid entry respawn inside Electron utility process', async () => {
@@ -137,12 +125,8 @@ describe('launchGatewayProcess', () => {
     expect(options?.env?.OPENCLAW_SERVICE_KIND).toBeUndefined();
   });
 
-  it('uses Electron run-as-node launcher in packaged builds', async () => {
+  it('uses Electron utilityProcess launcher in packaged builds', async () => {
     appMock.isPackaged = true;
-    Object.defineProperty(process, 'execPath', {
-      value: '/opt/KTClaw/ktclaw',
-      configurable: true,
-    });
     const { launchGatewayProcess } = await import('@electron/gateway/process-launcher');
 
     await launchGatewayProcess({
@@ -168,11 +152,9 @@ describe('launchGatewayProcess', () => {
       onError: () => {},
     });
 
-    expect(forkMock).not.toHaveBeenCalled();
-    expect(spawnMock).toHaveBeenCalledWith(
-      '/opt/KTClaw/ktclaw',
+    expect(forkMock).toHaveBeenCalledWith(
+      '/opt/KTClaw/resources/openclaw/openclaw.mjs',
       [
-        '/opt/KTClaw/resources/openclaw/openclaw.mjs',
         'gateway',
         '--port',
         '18790',
@@ -181,11 +163,11 @@ describe('launchGatewayProcess', () => {
         '--allow-unconfigured',
       ],
       expect.objectContaining({
-        cwd: '/opt/KTClaw',
-        windowsHide: true,
+        cwd: '/opt/KTClaw/resources/openclaw',
+        serviceName: 'OpenClaw Gateway',
         env: expect.objectContaining({
-          ELECTRON_RUN_AS_NODE: '1',
           OPENCLAW_GATEWAY_PORT: '18790',
+          OPENCLAW_NODE_OPTIONS_READY: '1',
         }),
       }),
     );

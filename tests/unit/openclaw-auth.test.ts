@@ -522,6 +522,68 @@ describe('sanitizeOpenClawConfig', () => {
     expect(plugins.entries?.['openclaw-weixin']?.enabled).toBe(true);
   });
 
+  it('moves KTClaw-only agent metadata out of strict OpenClaw agent entries', async () => {
+    await writeOpenClawJson({
+      agents: {
+        list: [
+          {
+            id: 'main',
+            name: 'Main',
+            default: true,
+            persona: 'Coordinator',
+            teamRole: 'leader',
+            chatAccess: 'direct',
+            responsibility: 'Coordinate delivery',
+          },
+          {
+            id: 'researcher',
+            name: 'Researcher',
+            workspace: '~/.openclaw/workspace-researcher',
+            params: {
+              ktclaw: {
+                persona: 'Existing metadata wins',
+              },
+            },
+            persona: 'Legacy metadata',
+            teamRole: 'worker',
+          },
+        ],
+      },
+    });
+
+    const { sanitizeOpenClawConfig } = await import('@electron/utils/openclaw-auth');
+    await sanitizeOpenClawConfig();
+
+    const config = await readOpenClawJson();
+    const list = (config.agents as { list: Array<Record<string, unknown>> }).list;
+    expect(list[0]).toEqual(expect.objectContaining({
+      id: 'main',
+      params: {
+        ktclaw: {
+          persona: 'Coordinator',
+          teamRole: 'leader',
+          chatAccess: 'direct',
+          responsibility: 'Coordinate delivery',
+        },
+      },
+    }));
+    expect(list[0].persona).toBeUndefined();
+    expect(list[0].teamRole).toBeUndefined();
+    expect(list[0].chatAccess).toBeUndefined();
+    expect(list[0].responsibility).toBeUndefined();
+    expect(list[1]).toEqual(expect.objectContaining({
+      id: 'researcher',
+      params: {
+        ktclaw: {
+          persona: 'Existing metadata wins',
+          teamRole: 'worker',
+        },
+      },
+    }));
+    expect(list[1].persona).toBeUndefined();
+    expect(list[1].teamRole).toBeUndefined();
+  });
+
   it('disables managed channel plugins that are not configured as active channels', async () => {
     await writeOpenClawJson({
       channels: {

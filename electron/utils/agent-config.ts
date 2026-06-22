@@ -42,11 +42,18 @@ interface AgentDefaultsConfig {
 interface AgentListEntry extends Record<string, unknown> {
   id: string;
   name?: string;
-  persona?: string;
   default?: boolean;
   workspace?: string;
   agentDir?: string;
   model?: string | AgentModelConfig;
+  params?: {
+    ktclaw?: KTClawAgentMetadata;
+    [key: string]: unknown;
+  };
+}
+
+interface KTClawAgentMetadata extends Record<string, unknown> {
+  persona?: string;
   avatar?: string | null;
   teamRole?: AgentTeamRole;
   chatAccess?: AgentChatAccess;
@@ -150,6 +157,75 @@ function normalizeAgentTeamRole(role: unknown, isDefault: boolean): AgentTeamRol
 
 function normalizeAgentChatAccess(access: unknown): AgentChatAccess {
   return access === 'leader_only' ? 'leader_only' : 'direct';
+}
+
+function getKTClawAgentMetadata(entry: AgentListEntry): KTClawAgentMetadata {
+  const params = entry.params && typeof entry.params === 'object' && !Array.isArray(entry.params)
+    ? entry.params
+    : {};
+  const ktclaw = params.ktclaw && typeof params.ktclaw === 'object' && !Array.isArray(params.ktclaw)
+    ? params.ktclaw as KTClawAgentMetadata
+    : {};
+
+  return {
+    ...(typeof entry.persona === 'string' ? { persona: entry.persona } : {}),
+    ...(typeof entry.avatar === 'string' || entry.avatar === null ? { avatar: entry.avatar as string | null } : {}),
+    ...(entry.teamRole === 'leader' || entry.teamRole === 'worker' ? { teamRole: entry.teamRole } : {}),
+    ...(entry.chatAccess === 'leader_only' || entry.chatAccess === 'direct' ? { chatAccess: entry.chatAccess } : {}),
+    ...(typeof entry.responsibility === 'string' ? { responsibility: entry.responsibility } : {}),
+    ...(typeof entry.reportsTo === 'string' || entry.reportsTo === null ? { reportsTo: entry.reportsTo as string | null } : {}),
+    ...ktclaw,
+  };
+}
+
+function setKTClawAgentMetadata(entry: AgentListEntry, metadata: KTClawAgentMetadata): AgentListEntry {
+  const params = entry.params && typeof entry.params === 'object' && !Array.isArray(entry.params)
+    ? { ...entry.params }
+    : {};
+  const normalizedMetadata: KTClawAgentMetadata = {};
+
+  if (typeof metadata.persona === 'string' && metadata.persona.trim()) {
+    normalizedMetadata.persona = metadata.persona.trim();
+  }
+  if (typeof metadata.avatar === 'string' && metadata.avatar.trim()) {
+    normalizedMetadata.avatar = metadata.avatar;
+  }
+  if (metadata.teamRole === 'leader' || metadata.teamRole === 'worker') {
+    normalizedMetadata.teamRole = metadata.teamRole;
+  }
+  if (metadata.chatAccess === 'leader_only' || metadata.chatAccess === 'direct') {
+    normalizedMetadata.chatAccess = metadata.chatAccess;
+  }
+  if (typeof metadata.responsibility === 'string' && metadata.responsibility.trim()) {
+    normalizedMetadata.responsibility = metadata.responsibility.trim();
+  }
+  if (typeof metadata.reportsTo === 'string' && metadata.reportsTo.trim()) {
+    normalizedMetadata.reportsTo = metadata.reportsTo;
+  } else if (metadata.reportsTo === null) {
+    normalizedMetadata.reportsTo = null;
+  }
+
+  const nextEntry: AgentListEntry = { ...entry };
+  delete nextEntry.persona;
+  delete nextEntry.avatar;
+  delete nextEntry.teamRole;
+  delete nextEntry.chatAccess;
+  delete nextEntry.responsibility;
+  delete nextEntry.reportsTo;
+
+  if (Object.keys(normalizedMetadata).length > 0) {
+    params.ktclaw = normalizedMetadata;
+  } else {
+    delete params.ktclaw;
+  }
+
+  if (Object.keys(params).length > 0) {
+    nextEntry.params = params;
+  } else {
+    delete nextEntry.params;
+  }
+
+  return nextEntry;
 }
 
 function slugifyAgentId(name: string): string {
@@ -500,6 +576,7 @@ async function buildSnapshotFromConfig(config: AgentConfigDocument): Promise<Age
 
   const defaultModelLabel = formatModelLabel((config.agents as AgentsConfig | undefined)?.defaults?.model);
   const agents: AgentSummary[] = entries.map((entry) => {
+    const ktclawMetadata = getKTClawAgentMetadata(entry);
     const modelLabel = formatModelLabel(entry.model) || defaultModelLabel || 'Not configured';
     const inheritedModel = !formatModelLabel(entry.model) && Boolean(defaultModelLabel);
     const rawModel = typeof entry.model === 'string' ? entry.model.trim()
@@ -511,7 +588,7 @@ async function buildSnapshotFromConfig(config: AgentConfigDocument): Promise<Age
     return {
       id: entry.id,
       name: entry.name || (entry.id === MAIN_AGENT_ID ? MAIN_AGENT_NAME : entry.id),
-      persona: normalizeAgentPersona(entry.persona),
+      persona: normalizeAgentPersona(ktclawMetadata.persona),
       isDefault: entry.id === defaultAgentId,
       model: rawModel,
       modelDisplay: modelLabel,
@@ -520,11 +597,11 @@ async function buildSnapshotFromConfig(config: AgentConfigDocument): Promise<Age
       agentDir: entry.agentDir || getDefaultAgentDirPath(entry.id),
       mainSessionKey: buildAgentMainSessionKey(config, entry.id),
       channelTypes: configuredChannels.filter((ct) => ownedChannels.has(ct)),
-      avatar: typeof entry.avatar === 'string' ? entry.avatar : null,
-      teamRole: normalizeAgentTeamRole(entry.teamRole, entry.id === defaultAgentId),
-      chatAccess: normalizeAgentChatAccess(entry.chatAccess),
-      responsibility: normalizeAgentResponsibility(entry.responsibility),
-      reportsTo: entry.reportsTo ?? (entry.id !== defaultAgentId ? defaultAgentId : null),
+      avatar: typeof ktclawMetadata.avatar === 'string' ? ktclawMetadata.avatar : null,
+      teamRole: normalizeAgentTeamRole(ktclawMetadata.teamRole, entry.id === defaultAgentId),
+      chatAccess: normalizeAgentChatAccess(ktclawMetadata.chatAccess),
+      responsibility: normalizeAgentResponsibility(ktclawMetadata.responsibility),
+      reportsTo: ktclawMetadata.reportsTo ?? (entry.id !== defaultAgentId ? defaultAgentId : null),
       directReports: [],
     };
   });
@@ -578,14 +655,15 @@ export async function createAgent(input: {
     }
 
     const nextEntries = syntheticMain ? [createImplicitMainEntry(config), ...entries.filter((_, index) => index > 0)] : [...entries];
-    const newAgent: AgentListEntry = {
+    const newAgent = setKTClawAgentMetadata({
       id: nextId,
       name: normalizedName,
-      persona: normalizeAgentPersona(input.persona),
       workspace: `~/.openclaw/workspace-${nextId}`,
       agentDir: getDefaultAgentDirPath(nextId),
+    }, {
+      persona: normalizeAgentPersona(input.persona),
       teamRole: normalizeAgentTeamRole(input.teamRole, false),
-    };
+    });
 
     if (typeof input.model === 'string' && input.model.trim()) {
       newAgent.model = input.model.trim();
@@ -633,17 +711,17 @@ export async function updateAgentProfile(
     }
 
     const currentEntry = entries[index];
+    const currentMetadata = getKTClawAgentMetadata(currentEntry);
     const normalizedName = updates.name !== undefined
       ? normalizeAgentName(updates.name)
       : (currentEntry.name || (currentEntry.id === MAIN_AGENT_ID ? MAIN_AGENT_NAME : currentEntry.id));
     const normalizedPersona = updates.persona !== undefined
       ? normalizeAgentPersona(updates.persona)
-      : normalizeAgentPersona(currentEntry.persona);
+      : normalizeAgentPersona(currentMetadata.persona);
 
     const updatedEntry: AgentListEntry = {
       ...currentEntry,
       name: normalizedName,
-      persona: normalizedPersona,
     };
 
     if (updates.model !== undefined) {
@@ -656,39 +734,38 @@ export async function updateAgentProfile(
     }
 
     if (updates.avatar !== undefined) {
-      if (updates.avatar) {
-        updatedEntry.avatar = updates.avatar;
-      } else {
-        delete updatedEntry.avatar;
-      }
+      currentMetadata.avatar = updates.avatar || undefined;
     }
 
     if (updates.reportsTo !== undefined) {
       if (updates.reportsTo && entries.some((e) => e.id === updates.reportsTo)) {
-        updatedEntry.reportsTo = updates.reportsTo;
+        currentMetadata.reportsTo = updates.reportsTo;
       } else {
-        delete updatedEntry.reportsTo;
+        currentMetadata.reportsTo = undefined;
       }
     }
 
     if (updates.teamRole !== undefined) {
-      updatedEntry.teamRole = normalizeAgentTeamRole(updates.teamRole, currentEntry.default === true);
+      currentMetadata.teamRole = normalizeAgentTeamRole(updates.teamRole, currentEntry.default === true);
     }
 
     if (updates.chatAccess !== undefined) {
-      updatedEntry.chatAccess = normalizeAgentChatAccess(updates.chatAccess);
+      currentMetadata.chatAccess = normalizeAgentChatAccess(updates.chatAccess);
     }
 
     if (updates.responsibility !== undefined) {
       const normalizedResponsibility = normalizeAgentResponsibility(updates.responsibility);
       if (normalizedResponsibility) {
-        updatedEntry.responsibility = normalizedResponsibility;
+        currentMetadata.responsibility = normalizedResponsibility;
       } else {
-        delete updatedEntry.responsibility;
+        currentMetadata.responsibility = undefined;
       }
     }
 
-    entries[index] = updatedEntry;
+    entries[index] = setKTClawAgentMetadata(updatedEntry, {
+      ...currentMetadata,
+      persona: normalizedPersona,
+    });
 
     config.agents = {
       ...agentsConfig,

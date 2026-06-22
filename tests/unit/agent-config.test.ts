@@ -108,6 +108,43 @@ describe('agent config lifecycle', () => {
     );
   });
 
+  it('reads legacy top-level KTClaw agent metadata for backwards compatibility', async () => {
+    await writeOpenClawJson({
+      agents: {
+        list: [
+          {
+            id: 'main',
+            name: 'Main',
+            default: true,
+          },
+          {
+            id: 'research',
+            name: 'Research',
+            persona: 'Find supporting evidence',
+            teamRole: 'worker',
+            chatAccess: 'leader_only',
+            responsibility: 'Research and evidence synthesis',
+          },
+        ],
+      },
+    });
+
+    const { listAgentsSnapshot } = await import('@electron/utils/agent-config');
+
+    const snapshot = await listAgentsSnapshot();
+    expect(snapshot.agents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'research',
+          persona: 'Find supporting evidence',
+          teamRole: 'worker',
+          chatAccess: 'leader_only',
+          responsibility: 'Research and evidence synthesis',
+        }),
+      ]),
+    );
+  });
+
   it('deletes the config entry and bindings for a removed agent, deferring destructive side effects', async () => {
     await writeOpenClawJson({
       agents: {
@@ -142,6 +179,11 @@ describe('agent config lifecycle', () => {
       channels: {
         feishu: {
           enabled: true,
+          accounts: {
+            default: {
+              enabled: true,
+            },
+          },
         },
       },
       bindings: [
@@ -227,7 +269,7 @@ describe('agent config lifecycle', () => {
     infoSpy.mockRestore();
   });
 
-  it('persists persona, team role, and model when creating an agent profile and returns createdAgentId', async () => {
+  it('persists KTClaw agent metadata under params without invalid OpenClaw agent keys', async () => {
     await writeOpenClawJson({
       agents: {
         list: [
@@ -280,18 +322,28 @@ describe('agent config lifecycle', () => {
     );
 
     const config = await readOpenClawJson();
-    expect((config.agents as { list: Array<{ id: string; persona?: string }> }).list).toEqual(
+    expect((config.agents as { list: Array<Record<string, unknown>> }).list).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: 'research-helper',
-          persona: 'Coordinate release readiness and keep reviews strict.',
           model: 'openai/gpt-5.4',
-          teamRole: 'worker',
-          chatAccess: 'leader_only',
-          responsibility: 'Research and evidence synthesis',
+          params: {
+            ktclaw: expect.objectContaining({
+              persona: 'Coordinate release readiness and keep reviews strict.',
+              teamRole: 'worker',
+              chatAccess: 'leader_only',
+              responsibility: 'Research and evidence synthesis',
+            }),
+          },
         }),
       ]),
     );
+    const storedAgent = (config.agents as { list: Array<Record<string, unknown>> }).list
+      .find((entry) => entry.id === 'research-helper');
+    expect(storedAgent?.persona).toBeUndefined();
+    expect(storedAgent?.teamRole).toBeUndefined();
+    expect(storedAgent?.chatAccess).toBeUndefined();
+    expect(storedAgent?.responsibility).toBeUndefined();
     expect(created.snapshot.agents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

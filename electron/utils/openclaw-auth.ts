@@ -137,6 +137,14 @@ async function discoverAgentIds(): Promise<string[]> {
 
 const OPENCLAW_CONFIG_PATH = join(getOpenClawConfigDir(), 'openclaw.json');
 const VALID_COMPACTION_MODES = new Set(['default', 'safeguard']);
+const KTCLAW_AGENT_METADATA_KEYS = [
+  'persona',
+  'avatar',
+  'teamRole',
+  'chatAccess',
+  'responsibility',
+  'reportsTo',
+] as const;
 
 async function readOpenClawJson(): Promise<Record<string, unknown>> {
   return (await readJsonFile<Record<string, unknown>>(OPENCLAW_CONFIG_PATH)) ?? {};
@@ -166,6 +174,7 @@ function normalizeAgentsDefaultsCompactionMode(config: Record<string, unknown>):
 
 async function writeOpenClawJson(config: Record<string, unknown>): Promise<void> {
   normalizeAgentsDefaultsCompactionMode(config);
+  migrateKTClawAgentMetadata(config);
 
   // Ensure SIGUSR1 graceful reload is authorized by OpenClaw config.
   const commands = (
@@ -582,6 +591,49 @@ function syncDefaultAgentListModels(config: Record<string, unknown>, model: stri
   }
 
   config.agents = agents;
+}
+
+function migrateKTClawAgentMetadata(config: Record<string, unknown>): boolean {
+  const agents = config.agents && typeof config.agents === 'object' && !Array.isArray(config.agents)
+    ? config.agents as Record<string, unknown>
+    : null;
+  if (!agents || !Array.isArray(agents.list)) {
+    return false;
+  }
+
+  let modified = false;
+  for (const entry of agents.list) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      continue;
+    }
+    const agent = entry as Record<string, unknown>;
+    const moved: Record<string, unknown> = {};
+    for (const key of KTCLAW_AGENT_METADATA_KEYS) {
+      if (key in agent) {
+        moved[key] = agent[key];
+        delete agent[key];
+      }
+    }
+    if (Object.keys(moved).length === 0) {
+      continue;
+    }
+
+    const params = agent.params && typeof agent.params === 'object' && !Array.isArray(agent.params)
+      ? agent.params as Record<string, unknown>
+      : {};
+    const ktclaw = params.ktclaw && typeof params.ktclaw === 'object' && !Array.isArray(params.ktclaw)
+      ? params.ktclaw as Record<string, unknown>
+      : {};
+    params.ktclaw = {
+      ...moved,
+      ...ktclaw,
+    };
+    agent.params = params;
+    modified = true;
+    logger.info(`[sanitize] Moved KTClaw agent metadata into agents.list[].params.ktclaw for "${String(agent.id ?? 'unknown')}"`);
+  }
+
+  return modified;
 }
 
 function ensurePluginEnabled(
@@ -1567,6 +1619,10 @@ export async function sanitizeOpenClawConfig(): Promise<void> {
   return withConfigLock(async () => {
     const config = await readOpenClawJson();
     let modified = false;
+
+    if (migrateKTClawAgentMetadata(config)) {
+      modified = true;
+    }
 
     // ── skills section ──────────────────────────────────────────────
     // OpenClaw's Zod schema uses .strict() on the skills object, accepting

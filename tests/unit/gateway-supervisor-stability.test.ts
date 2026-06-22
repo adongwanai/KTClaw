@@ -179,7 +179,7 @@ describe('gateway supervisor stability', () => {
     expect(child.kill).not.toHaveBeenCalled();
   });
 
-  it('waits for port release after orphan cleanup on Windows', async () => {
+  it('reuses an external Gateway listener instead of killing it on Windows', async () => {
     setPlatform('win32');
     execMock.mockImplementation((command: string, _options: unknown, callback: (error: Error | null, stdout: string) => void) => {
       if (command.includes('netstat')) {
@@ -192,8 +192,38 @@ describe('gateway supervisor stability', () => {
     const { findExistingGatewayProcess } = await import('@electron/gateway/supervisor');
     const existing = await findExistingGatewayProcess({ port: 18789 });
 
+    expect(existing).toEqual({ port: 18789 });
+    expect(probeGatewayReadyMock).toHaveBeenCalledWith(18789, expect.any(Number));
+    expect(execMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('taskkill'),
+      expect.any(Object),
+      expect.any(Function),
+    );
+    expect(createServerMock).not.toHaveBeenCalled();
+  });
+
+  it('leaves a non-Gateway listener untouched on Windows', async () => {
+    setPlatform('win32');
+    probeGatewayReadyMock.mockResolvedValue(false);
+    execMock.mockImplementation((command: string, _options: unknown, callback: (error: Error | null, stdout: string) => void) => {
+      if (command.includes('netstat')) {
+        callback(null, '  TCP    127.0.0.1:18790    0.0.0.0:0    LISTENING    9988');
+        return;
+      }
+      callback(null, '');
+    });
+
+    const { findExistingGatewayProcess } = await import('@electron/gateway/supervisor');
+    const existing = await findExistingGatewayProcess({ port: 18790 });
+
     expect(existing).toBeNull();
-    expect(createServerMock).toHaveBeenCalled();
+    expect(probeGatewayReadyMock).toHaveBeenCalledWith(18790, expect.any(Number));
+    expect(execMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('taskkill'),
+      expect.any(Object),
+      expect.any(Function),
+    );
+    expect(createServerMock).not.toHaveBeenCalled();
   });
 
   it('runs managed python warmup at most once per process session', async () => {

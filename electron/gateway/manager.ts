@@ -110,7 +110,6 @@ export class GatewayManager extends EventEmitter {
   private reloadPolicy: GatewayReloadPolicy = { ...DEFAULT_GATEWAY_RELOAD_POLICY };
   private reloadPolicyLoadedAt = 0;
   private reloadPolicyRefreshPromise: Promise<void> | null = null;
-  private externalShutdownSupported: boolean | null = null;
   private reconnectAttemptsTotal = 0;
   private reconnectSuccessTotal = 0;
   private static readonly RELOAD_POLICY_REFRESH_MS = 15_000;
@@ -184,11 +183,6 @@ export class GatewayManager extends EventEmitter {
       sanitized[tokenIdx + 1] = '[redacted]';
     }
     return sanitized;
-  }
-
-  private isUnsupportedShutdownError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return /unknown method:\s*shutdown/i.test(message);
   }
 
   private async refreshConfiguredPortFromStore(): Promise<void> {
@@ -401,22 +395,6 @@ export class GatewayManager extends EventEmitter {
 
     // Clear all timers
     this.clearAllTimers();
-
-    // If this manager is attached to an external gateway process, ask it to shut down
-    // over protocol before closing the socket.
-    if (!this.ownsProcess && this.ws?.readyState === WebSocket.OPEN && this.externalShutdownSupported !== false) {
-      try {
-        await this.rpc('shutdown', undefined, 5000);
-        this.externalShutdownSupported = true;
-      } catch (error) {
-        if (this.isUnsupportedShutdownError(error)) {
-          this.externalShutdownSupported = false;
-          logger.info('External Gateway does not support "shutdown"; skipping shutdown RPC for future stops');
-        } else {
-          logger.warn('Failed to request shutdown for externally managed Gateway:', error);
-        }
-      }
-    }
 
     // Close WebSocket
     if (this.ws) {

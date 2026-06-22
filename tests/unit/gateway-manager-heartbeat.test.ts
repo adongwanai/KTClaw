@@ -160,4 +160,23 @@ describe('GatewayManager heartbeat integration', () => {
     expect(terminateOwnedGatewayProcessMock).toHaveBeenCalledWith(ownedChild);
     expect((manager as unknown as { process: Electron.UtilityProcess | null }).process).toBeNull();
   });
+
+  it('does not shut down or terminate an externally managed gateway on stop', async () => {
+    const { GatewayManager } = await import('@electron/gateway/manager');
+    const manager = new GatewayManager();
+    const close = vi.fn();
+    const rpc = vi.fn();
+    (manager as unknown as { ws: { readyState: number; close: (code: number, reason: string) => void } | null }).ws = {
+      readyState: 1,
+      close,
+    };
+    (manager as unknown as { ownsProcess: boolean }).ownsProcess = false;
+    (manager as unknown as { rpc: typeof rpc }).rpc = rpc;
+
+    await manager.stop();
+
+    expect(rpc).not.toHaveBeenCalled();
+    expect(terminateOwnedGatewayProcessMock).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledWith(1000, 'Gateway stopped by user');
+  });
 });

@@ -18,7 +18,7 @@ import { WorkbenchEmptyState } from '@/components/workbench/workbench-empty-stat
 import { ContextRail } from '@/components/workbench/context-rail';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
-import { extractImages, extractText, extractThinking, extractToolUse, isSystemInjectedUserMessage, extractReminderContent } from './message-utils';
+import { extractImages, extractText, extractThinking, extractToolUse, isReminderInjectedUserMessage, extractReminderContent } from './message-utils';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useStickToBottomInstant } from '@/hooks/use-stick-to-bottom-instant';
@@ -114,7 +114,7 @@ export function Chat() {
   const notifiedKeysRef = useRef(new Set<string>());
   useEffect(() => {
     for (const msg of messages) {
-      if (!isSystemInjectedUserMessage(msg)) continue;
+      if (!isReminderInjectedUserMessage(msg)) continue;
       // Use id, or fall back to a content-based fingerprint for messages without id
       const key = msg.id
         || `ts:${msg.timestamp ?? 0}:${String(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)).slice(0, 80)}`;

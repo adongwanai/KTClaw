@@ -1,3 +1,5 @@
+import { isInfrastructureChatText } from '@/lib/internal-chat-messages';
+
 type MessageLike = {
   role?: unknown;
   content?: unknown;
@@ -35,13 +37,7 @@ export function cleanSessionLabelText(text: string): string {
 }
 
 export function isInfrastructureSessionLabel(text: string): boolean {
-  const normalized = text.trim().toLowerCase();
-  if (!normalized) return true;
-  return normalized === 'heartbeat'
-    || normalized.startsWith('conversation info')
-    || /^system:\s*\[/.test(text)
-    || /a scheduled reminder has been triggered/i.test(text)
-    || /\[cron:[^\]]+\]/i.test(text);
+  return isInfrastructureChatText(text);
 }
 
 export function deriveSessionLabelFromMessages(messages: MessageLike[], maxLength = 50): string {

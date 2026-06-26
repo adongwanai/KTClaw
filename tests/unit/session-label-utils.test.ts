@@ -21,6 +21,25 @@ describe('session label utils', () => {
     expect(label).toBe('Help me polish the sidebar');
   });
 
+  it('skips gateway heartbeat prompts and ack messages', () => {
+    const label = deriveSessionLabelFromMessages([
+      {
+        role: 'user',
+        content: 'Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.\nWhen reading HEARTBEAT.md, use workspace file /home/test/.openclaw/workspace/HEARTBEAT.md (exact case). Do not read docs/heartbeat.md.',
+      },
+      {
+        role: 'user',
+        content: 'HEARTBEAT_OK',
+      },
+      {
+        role: 'user',
+        content: 'Generate a deck outline',
+      },
+    ]);
+
+    expect(label).toBe('Generate a deck outline');
+  });
+
   it('cleans dispatch and attachment metadata before truncating', () => {
     const label = deriveSessionLabelFromMessages([
       {

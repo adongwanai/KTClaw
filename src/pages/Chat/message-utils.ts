@@ -5,6 +5,7 @@
  */
 import type { RawMessage, ContentBlock } from '@/stores/chat';
 import { stripDispatchHints } from '../../../shared/chat-dispatch-hints';
+import { isGatewaySystemEventText, isHeartbeatAckText, isHeartbeatPromptText, isReminderTriggerText } from '@/lib/internal-chat-messages';
 
 /**
  * Clean Gateway metadata from user message text for display.
@@ -364,14 +365,30 @@ export function isSystemInjectedUserMessage(message: RawMessage | unknown): bool
       .join('\n');
   }
 
-  // Match Gateway system-injected patterns (heartbeat-delivered cron triggers,
-  // system event prompts, and cron-prefixed messages from isolated runs).
+  // Match Gateway system-injected patterns (heartbeat prompts/acks,
+  // heartbeat-delivered cron triggers, system event prompts, and cron-prefixed messages).
   // The patterns are NOT anchored to ^ because Gateway metadata (timestamps,
   // Conversation info blocks) may appear before the actual trigger text.
-  return /^System:\s*\[/i.test(raw)
-    || /A scheduled reminder has been triggered/i.test(raw)
-    || /\[cron:[^\]]+\]/.test(raw)
-    || /scheduled reminder|定时提醒|cron.*triggered/i.test(raw);
+  return isGatewaySystemEventText(raw)
+    || isHeartbeatPromptText(raw)
+    || isHeartbeatAckText(raw)
+    || isReminderTriggerText(raw);
+}
+
+export function isReminderInjectedUserMessage(message: RawMessage | unknown): boolean {
+  if (!isSystemInjectedUserMessage(message)) return false;
+  const msg = message as Record<string, unknown>;
+  const content = msg.content;
+  let raw = '';
+  if (typeof content === 'string') {
+    raw = content;
+  } else if (Array.isArray(content)) {
+    raw = (content as ContentBlock[])
+      .filter((b) => b.type === 'text' && b.text)
+      .map((b) => b.text!)
+      .join('\n');
+  }
+  return isReminderTriggerText(raw);
 }
 
 /**
@@ -379,7 +396,7 @@ export function isSystemInjectedUserMessage(message: RawMessage | unknown): bool
  * Returns null if no reminder content found.
  */
 export function extractReminderContent(message: RawMessage | unknown): string | null {
-  if (!isSystemInjectedUserMessage(message)) return null;
+  if (!isReminderInjectedUserMessage(message)) return null;
   const msg = message as Record<string, unknown>;
   const content = msg.content;
   let raw = '';

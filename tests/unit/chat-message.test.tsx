@@ -114,6 +114,25 @@ describe('ChatMessage', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('hides gateway heartbeat prompt and ack user messages', () => {
+    const heartbeatPrompt: RawMessage = {
+      role: 'user',
+      content: 'Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.\nWhen reading HEARTBEAT.md, use workspace file /home/test/.openclaw/workspace/HEARTBEAT.md (exact case). Do not read docs/heartbeat.md.\nCurrent time: Friday, June 26th, 2026 - 14:09 (Asia/Shanghai) / 2026-06-26 06:09 UTC',
+      timestamp: 1710001900,
+    };
+    const heartbeatAck: RawMessage = {
+      role: 'user',
+      content: 'HEARTBEAT_OK',
+      timestamp: 1710001901,
+    };
+
+    const { container, rerender } = render(<ChatMessage message={heartbeatPrompt} showThinking={false} />);
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(<ChatMessage message={heartbeatAck} showThinking={false} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('renders assistant markdown text with inline code in the current neutral assistant surface', () => {
     const message: RawMessage = {
       role: 'assistant',

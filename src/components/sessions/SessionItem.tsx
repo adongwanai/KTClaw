@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Crown, MoreVertical, Pin, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { isInfrastructureChatText } from '@/lib/internal-chat-messages';
 import { Badge } from '@/components/ui/badge';
 import type { ChatSession } from '@/stores/chat';
 
@@ -176,8 +177,7 @@ function cleanTitleText(value: string): string {
     .replace(/^Conversation info\s*\([^)]*\):\s*\{[\s\S]*?\}\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim();
-  const normalized = cleaned.toLowerCase();
-  if (!cleaned || normalized === 'heartbeat' || normalized.startsWith('conversation info')) {
+  if (isInfrastructureChatText(cleaned)) {
     return '';
   }
   return cleaned;
